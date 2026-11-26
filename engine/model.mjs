@@ -34,6 +34,11 @@ export const DEFAULT_PARAMS = {
   homeAdv: 1.1,
   teamK: 6,          // games-equivalent weight of the club strength prior
   priceW: 0.3,       // weight of the price-implied points (market prior)
+  startW: 0,         // weight of the start-based minutes model (0 = minutes-share model only)
+  stLast: 0.35, stRecent: 0.35, stSeason: 0.3, // start-probability weights: last match / last 4 / season
+  subP: 0.3,         // chance a non-starter comes off the bench
+  penW: 0,           // extra goal threat for the designated penalty taker (x team pens per game)
+  setW: 0,           // extra assist threat for the main corner/indirect free-kick taker
 };
 
 const num = v => (v == null || v === '' ? 0 : Number(v)) || 0;
@@ -150,6 +155,10 @@ export function buildProjections({ bootstrap, fixtures, recent, teamGames, gws, 
   }
 
   const P = { ...DEFAULT_PARAMS, ...(params || {}) };
+  const lastPlayed = {};
+  for (const f of fixtures) if (f.finished && f.event != null) {
+    lastPlayed[f.team_h] = Math.max(lastPlayed[f.team_h] || 0, f.event); lastPlayed[f.team_a] = Math.max(lastPlayed[f.team_a] || 0, f.event);
+  }
   // Market prior: last season's points-per-90 vs end-of-season price, fitted per position
   const priceFit = {};
   if (P.priceW > 0 && lastSeason) {
@@ -199,9 +208,32 @@ export function buildProjections({ bootstrap, fixtures, recent, teamGames, gws, 
     const rGames = teamGames?.[el.team] || 0;
     const recentShare = rGames ? r.minutes / (90 * rGames) : seasonShare;
     const share = clamp(rGames ? P.shareRecent * recentShare + (1 - P.shareRecent) * seasonShare : seasonShare, 0, 1);
-    const p60 = clamp(1.15 * share - 0.1, 0, 0.95);
-    const pApp = clamp(share * 1.5 + 0.05, p60, 0.98);
-    const minsIfPlay = pApp > 0 ? clamp((90 * share) / pApp, 10, 90) : 0;
+    let p60 = clamp(1.15 * share - 0.1, 0, 0.95);
+    let pApp = clamp(share * 1.5 + 0.05, p60, 0.98);
+    let minsIfPlay = pApp > 0 ? clamp((90 * share) / pApp, 10, 90) : 0;
+
+    // Start-based rotation model: P(start) from the last match, last 4 and season (+ last season prior)
+    if (P.startW > 0) {
+      const lsStartRate = lsOk ? clamp(num(ls.starts) / 38 * P.lsShareScale, 0, 1) : P.newShare;
+      const seasonStart = (num(el.starts) + lsStartRate * G0) / (team.games + G0);
+      const recentStart = rGames ? clamp((r.starts || 0) / rGames, 0, 1) : seasonStart;
+      const lp = lastPlayed[el.team];
+      const lastStart = lp && r.startsByGw ? ((r.startsByGw[lp] || 0) > 0 ? 1 : 0) : recentStart;
+      const startRate = clamp(P.stLast * lastStart + P.stRecent * recentStart + P.stSeason * seasonStart, 0, 0.98);
+      const starts = num(el.starts) + (lsOk ? num(ls.starts) * 0.25 : 0);
+      const mins = num(el.minutes) + (lsOk ? ls.minutes * 0.25 : 0);
+      const mps = starts > 0 ? clamp(mins / starts, 45, 90) : 80; // minutes per start (incl. a little sub time)
+      const f60 = clamp((mps - 45) / 45, 0.3, 0.97);
+      const sp60 = startRate * f60;
+      const spApp = clamp(startRate + (1 - startRate) * P.subP, sp60, 0.99);
+      const sMins = spApp > 0 ? clamp((startRate * mps + (1 - startRate) * P.subP * 20) / spApp, 10, 90) : 0;
+      p60 = (1 - P.startW) * p60 + P.startW * sp60;
+      pApp = (1 - P.startW) * pApp + P.startW * spApp;
+      minsIfPlay = (1 - P.startW) * minsIfPlay + P.startW * sMins;
+    }
+    // Set pieces (today's designated takers)
+    const penShare = el.penalties_order === 1 ? 1 : el.penalties_order === 2 ? 0.15 : 0;
+    const setShare = el.corners_and_indirect_freekicks_order === 1 ? 1 : el.corners_and_indirect_freekicks_order === 2 ? 0.3 : 0;
 
     const pts = {}, fixturesOut = {};
     gws.forEach((gw, k) => {
@@ -220,6 +252,8 @@ export function buildProjections({ bootstrap, fixtures, recent, teamGames, gws, 
         let p = a * (p60 * 2 + (pApp - p60) * 1);
         p += g90 * fAtt * expMins / 90 * GOAL_PTS[pos];
         p += a90 * fAtt * expMins / 90 * 3;
+        if (penShare && P.penW) p += P.penW * penShare * 0.11 * 0.78 * fAtt * (expMins / 90) * GOAL_PTS[pos];
+        if (setShare && P.setW) p += P.setW * setShare * 0.06 * fAtt * (expMins / 90) * 3;
         p += CS_PTS[pos] * a * p60 * Math.exp(-lamAg);
         if (pos <= 2) p -= a * p60 * expFloorDiv(lamAg, 2);
         if (pos === 1) p += a * p60 * expFloorDiv(saves90 * (lamAg / team.def), 3);
@@ -265,8 +299,9 @@ export function aggregateRecent(lives, fixtures, lastGws) {
     if (!live) continue;
     for (const e of live.elements) {
       const s = e.stats || {};
-      const cur = m.get(e.id) || { minutes: 0, xg: 0, xa: 0, bonus: 0, saves: 0, dc: 0, goals: 0, assists: 0 };
+      const cur = m.get(e.id) || { minutes: 0, xg: 0, xa: 0, bonus: 0, saves: 0, dc: 0, goals: 0, assists: 0, starts: 0, startsByGw: {} };
       cur.goals += num(s.goals_scored); cur.assists += num(s.assists);
+      cur.starts += num(s.starts); cur.startsByGw[live.gw] = (cur.startsByGw[live.gw] || 0) + num(s.starts);
       cur.minutes += num(s.minutes); cur.xg += num(s.expected_goals); cur.xa += num(s.expected_assists);
       cur.bonus += num(s.bonus); cur.saves += num(s.saves); cur.dc += num(s.defensive_contribution);
       m.set(e.id, cur);

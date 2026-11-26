@@ -48,8 +48,9 @@ function recentFrom(hist, fixtures, t) {
   const lastGws = [t - 4, t - 3, t - 2, t - 1].filter(g => g >= 1);
   const m = new Map();
   for (const [id, rows] of hist) {
-    const r = { minutes: 0, xg: 0, xa: 0, bonus: 0, saves: 0, dc: 0, goals: 0, assists: 0 };
+    const r = { minutes: 0, xg: 0, xa: 0, bonus: 0, saves: 0, dc: 0, goals: 0, assists: 0, starts: 0, startsByGw: {} };
     for (const row of rows) if (lastGws.includes(row.round)) {
+      r.starts += num(row.starts); r.startsByGw[row.round] = (r.startsByGw[row.round] || 0) + num(row.starts);
       r.minutes += num(row.minutes); r.xg += num(row.expected_goals); r.xa += num(row.expected_assists);
       r.bonus += num(row.bonus); r.saves += num(row.saves); r.dc += num(row.defensive_contribution);
       r.goals += num(row.goals_scored); r.assists += num(row.assists);

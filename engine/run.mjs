@@ -27,7 +27,7 @@ export async function run({ api = realApi, outDir = path.join(ROOT, 'docs', 'dat
   const gws = events.map(e => e.id).filter(g => g >= nextGw).slice(0, horizon);
 
   const lastGws = finished.slice(-4);
-  const lives = await Promise.all(lastGws.map(g => api.live(g).catch(() => null)));
+  const lives = await Promise.all(lastGws.map(g => api.live(g).then(l => l && { ...l, gw: g }).catch(() => null)));
   const { recent, teamGames } = aggregateRecent(lives, fixtures, lastGws);
   let lastSeason = null;
   try { lastSeason = lastSeasonFromJSON(JSON.parse(await fs.readFile(path.join(ROOT, 'cache', 'last-season.json'), 'utf8'))); }

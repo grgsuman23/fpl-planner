@@ -123,6 +123,7 @@
     }
     html += pitch(squad, gw, t ? newIns() : new Set());
     html += `</section>`;
+    html += startBench(squad, gw);
     if (!t) html += generalExtras();
     view.innerHTML = html;
     view.querySelectorAll('[data-gw]').forEach(b => b.onclick = () => { state.gwSel = Number(b.dataset.gw); renderPlan(); });
@@ -189,6 +190,43 @@
     return `<div class="pitch">${rows}
       <div class="bench"><div class="lbl">${bb ? 'Bench (Bench Boost — these score too)' : 'Bench, in order'}</div><div class="row">${lu.bench.map(i => tok(i)).join('')}</div></div></div>
       <div class="pitch-foot"><span>Expected <b class="num" style="font-size:20px">${f1(total)}</b> pts${tc ? ' with Triple Captain' : bb ? ' with Bench Boost' : ''}</span><span class="muted">Lowercase club = away</span></div>`;
+  }
+
+
+  // Explicit start / bench advice for the squad and GW on screen
+  function startBench(ids, gw) {
+    const lu = bestLineup(ids, gw);
+    const x = id => pts(P(id), gw);
+    const fx = id => (P(id).fixtures[gw] || []).join(', ') || 'no game';
+    const doubt = id => { const p = P(id); return p.status !== 'a' || (p.chance != null && p.chance < 100); };
+    const st = lu.starters.map(P), bn = lu.bench.map(P);
+    // close calls: a bench outfielder within 0.5 xP of a starter he could legally replace
+    const cnt = { 1: 0, 2: 0, 3: 0, 4: 0 }; st.forEach(p => cnt[p.pos]++);
+    const min = { 1: 1, 2: 3, 3: 2, 4: 1 };
+    const close = [];
+    for (const b of bn.filter(p => p.pos !== 1)) {
+      const swappable = st.filter(s => s.pos !== 1 && (s.pos === b.pos || cnt[s.pos] > min[s.pos]) && (b.pos === s.pos || cnt[b.pos] < ({ 2: 5, 3: 5, 4: 3 })[b.pos]));
+      const weakest = swappable.sort((a, c) => x(a.id) - x(c.id))[0];
+      if (weakest && x(weakest.id) - x(b.id) < 0.5) close.push([weakest, b]);
+    }
+    const gk2 = bn.find(p => p.pos === 1);
+    if (gk2 && x(st.find(p => p.pos === 1).id) - x(gk2.id) < 0.5) close.push([st.find(p => p.pos === 1), gk2]);
+    const line = (p, i) => `<li data-pid="${p.id}" class="click"><div><div class="t">${i != null ? `${i}. ` : ''}${esc(p.name)}${p.id === lu.captain ? ' <span class="pill red">C</span>' : p.id === lu.vice ? ' <span class="pill">V</span>' : ''}${doubt(p.id) ? ' <span style="color:var(--red)">●</span>' : ''}</div><div class="s">${p.posName} · ${esc(fx(p.id))}${doubt(p.id) && p.news ? ` · ${esc(p.news)}` : ''}</div></div><div class="num" style="font-size:18px">${f1(x(p.id))}</div></li>`;
+    const form = `${cnt[2]}-${cnt[3]}-${cnt[4]}`;
+    const notes = [];
+    const blanks = st.filter(p => !(p.fixtures[gw] || []).length);
+    if (blanks.length) notes.push(`${blanks.map(p => esc(p.name)).join(', ')} ${blanks.length > 1 ? 'have' : 'has'} no game: you don't have 11 players with a fixture.`);
+    const doubts = st.filter(p => doubt(p.id));
+    if (doubts.length) notes.push(`Doubtful starter${doubts.length > 1 ? 's' : ''}: ${doubts.map(p => esc(p.name)).join(', ')}. Check team news before the deadline; your first bench player (${esc(bn.find(p => p.pos !== 1)?.name || '')}) comes on automatically if they don't play.`);
+    const byStarter = new Map();
+    close.forEach(([a, b]) => byStarter.set(a, [...(byStarter.get(a) || []), b]));
+    [...byStarter].slice(0, 2).forEach(([a, bs]) => notes.push(`Close call: ${esc(a.name)} (${f1(x(a.id))}) only just starts ahead of ${bs.map(b => `${esc(b.name)} (${f1(x(b.id))})`).join(' and ')}. Let team news decide.`));
+    return `<section class="block"><h2>Start and bench · GW${gw}</h2>
+      <p class="sub">Formation ${form}. Expected points shown on the right; tap a player for details.</p>
+      ${notes.map(n => `<div class="note ${n.startsWith('Close') ? 'blue' : ''}">${n}</div>`).join('')}
+      <h3>Start</h3><ul class="list">${[1, 2, 3, 4].flatMap(pos => st.filter(p => p.pos === pos).sort((a, c) => x(c.id) - x(a.id))).map(p => line(p)).join('')}</ul>
+      <h3>Bench, in order</h3><ul class="list">${bn.map((p, i) => line(p, p.pos === 1 ? 'GK' : i)).join('')}</ul>
+      <p class="sub" style="margin-top:8px">Bench order matters: if a starter doesn't play, FPL brings on the first bench player who keeps the formation legal.</p></section>`;
   }
 
   function generalExtras() {
