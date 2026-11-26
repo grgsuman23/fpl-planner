@@ -1,0 +1,11 @@
+import { ens } from './ensemble.mjs';
+import { evaluate } from './tune.mjs';
+const M3 = { lsMin: 1800, priceW: 0.3 };
+const low = { thrTC: 6, thrBB: 9, thrFH: 9, thrWC: 7 };
+await ens('F1 M3 + lower chip bars', M3, { chips: true, ...low });
+await ens('F2 F1 + no hits', M3, { chips: true, ...low, maxExtra: 0 });
+await ens('F3 F1 + decay 0.8', M3, { chips: true, ...low, decay: 0.8 });
+await ens('F0 M1 (for reference) + lower chip bars', {}, { chips: true, ...low });
+console.log('--- single deterministic replay (what actually would have happened)');
+await evaluate('F1 deterministic', { params: M3, policy: { chips: true, ...low } });
+await evaluate('F1 deterministic, no chips', { params: M3, policy: { chips: false } });

@@ -372,13 +372,14 @@
     const row = (label, v, best) => `<tr><td>${label}</td><td class="r">${best ? `<span class="best">${v}</span>` : v}</td></tr>`;
     const bestMae = Math.min(s.mae.model, s.mae.form, s.mae.ppg), bestCorr = Math.max(s.corr.model, s.corr.form, s.corr.ppg);
     openSheet(`<h2>Backtest · GW${g0}–${g1}</h2>
-      <p class="sub">A simulated manager started with £100m in GW${g0} and followed this app's transfers, lineups and captains every week, with no chips.</p>
+      <p class="sub">A simulated manager started with £100m in GW${g0} and followed this app's transfers, lineups, captains and chip rule every week, using only what was known before each deadline.</p>
       <div class="stat-grid" style="grid-template-columns:repeat(${2 + mgr.length},1fr)">
-        <div><span class="num">${s.sim.total}</span><small>Model manager</small></div>
+        <div><span class="num">${s.ensemble ? s.ensemble.mean : s.sim.total}</span><small>Model, ${s.ensemble ? 'typical' : 'replay'}</small></div>
         <div><span class="num">${s.average.total}</span><small>FPL average</small></div>
         ${mgr.map(m => `<div><span class="num">${m.total}</span><small>${esc(m.name)}</small></div>`).join('')}
       </div>
-      <p>${beat >= 0 ? `The model beat the average manager by <b>${beat}</b> pts` : `The model trailed the average manager by <b>${-beat}</b> pts`} over ${s.weeks} gameweeks.</p>
+      ${s.ensemble ? `<p>Across ${s.ensemble.n} replays with small nudges to the projections, the model scored <b>${s.ensemble.mean}</b> on average (range ${s.ensemble.min}–${s.ensemble.max}) against the average manager's ${s.average.total}. The exact replay below scored ${s.sim.total}${(s.sim.chips || []).length ? ` using ${s.sim.chips.map(c => `${({ wildcard: 'Wildcard', freehit: 'Free Hit', bboost: 'Bench Boost', '3xc': 'Triple Captain' })[c.chip]} in GW${c.gw}`).join(', ')}` : ''}. One season swings a lot on a few captain picks, so the average is the fairer number.</p>`
+        : `<p>${beat >= 0 ? `The model beat the average manager by <b>${beat}</b> pts` : `The model trailed the average manager by <b>${-beat}</b> pts`} over ${s.weeks} gameweeks.</p>`}
       <h3>Prediction accuracy</h3>
       <p class="sub">Compared with two simple methods: recent form (points per game over the last 4 GWs) and season points per game.</p>
       <table><thead><tr><th></th><th class="r">Model</th><th class="r">Form</th><th class="r">Season PPG</th></tr></thead><tbody>
@@ -389,7 +390,7 @@
       </tbody></table>
       <h3>Week by week</h3>
       <div class="tbl-wrap"><table><thead><tr><th>GW</th><th class="r">Model</th><th class="r">Avg</th>${mgr.map(m => `<th class="r">${esc(m.name.slice(0, 10))}</th>`).join('')}<th>Captain</th><th>Transfers</th></tr></thead><tbody>
-      ${b.weeks.map(w => `<tr><td>GW${w.gw}</td><td class="r"><b>${w.sim.points}</b>${w.sim.hits ? ` <span class="muted">(−${w.sim.hits})</span>` : ''}</td><td class="r">${w.average ?? '–'}</td>${mgr.map(m => `<td class="r">${m.byGw[w.gw] ?? '–'}</td>`).join('')}<td>${esc(w.sim.captain)} ${w.sim.captainPts}</td><td class="muted">${w.sim.transfers.map(t => `${esc(t.out)}→${esc(t.in)}`).join(', ') || '—'}</td></tr>`).join('')}
+      ${b.weeks.map(w => `<tr><td>GW${w.gw}</td><td class="r"><b>${w.sim.points}</b>${w.sim.hits ? ` <span class="muted">(−${w.sim.hits})</span>` : ''}${w.sim.chip ? ` <span class="pill red">${({ wildcard: 'WC', freehit: 'FH', bboost: 'BB', '3xc': 'TC' })[w.sim.chip]}</span>` : ''}</td><td class="r">${w.average ?? '–'}</td>${mgr.map(m => `<td class="r">${m.byGw[w.gw] ?? '–'}</td>`).join('')}<td>${esc(w.sim.captain)} ${w.sim.captainPts}</td><td class="muted">${w.sim.chip === 'wildcard' ? 'Wildcard rebuild' : w.sim.transfers.map(t => `${esc(t.out)}→${esc(t.in)}`).join(', ') || '—'}</td></tr>`).join('')}
       </tbody></table></div>
       <h3>Limits of this test</h3>
       <ul class="sub" style="padding-left:18px">${b.caveats.map(c => `<li>${esc(c)}</li>`).join('')}</ul>

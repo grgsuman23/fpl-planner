@@ -127,7 +127,7 @@ export async function chipPlan({ players, byId, squadIds, budget, gws, chipState
   }
 
   // Baselines: an "average" chip use is worth roughly this much
-  const baseline = { tc: 6, bb: 10, fh: 10, wc: 12 };
+  const baseline = { tc: 6, bb: 9, fh: 9, wc: 7 }; // bars validated in the GW1-11 backtest
   const key = { '3xc': 'tc', bboost: 'bb', freehit: 'fh', wildcard: 'wc' };
   const chips = chipState.available.filter(c => windowGws.some(g => values[g][key[c]] != null));
   const expiring = chipState.half === 1;

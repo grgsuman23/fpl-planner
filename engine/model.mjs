@@ -19,6 +19,23 @@ const PRIOR = {
 };
 const PRIOR_MINUTES = 270;
 
+export const DEFAULT_PARAMS = {
+  W: 1.5,            // extra weight on the last 4 GWs
+  priorMin: 270,     // strength (minutes) of the position-average prior
+  useLastSeason: true,
+  lsMin: 1800,       // max strength (minutes) of last season's rates as prior
+  actualW: 0.3,      // weight of actual goals/assists vs xG/xA
+  realisedW: 0.3,    // weight of realised FPL points per 90
+  epW: 0.15,         // weight of FPL's own ep_next (live only)
+  shareRecent: 0.6,  // minutes share: weight of last 4 GWs
+  shareG0: 3,        // games-equivalent weight of last season's minutes share
+  lsShareScale: 1.1, // last season minutes understate a fit starter's share (injuries)
+  newShare: 0.35,    // prior minutes share for players new to the league
+  homeAdv: 1.1,
+  teamK: 6,          // games-equivalent weight of the club strength prior
+  priceW: 0.3,       // weight of the price-implied points (market prior)
+};
+
 const num = v => (v == null || v === '' ? 0 : Number(v)) || 0;
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
@@ -70,7 +87,7 @@ function availability(el, k, deadline, now) {
   return Math.max(chance / 100, recover[Math.min(k, recover.length - 1)]);
 }
 
-export function teamRatings(bootstrap, fixtures) {
+export function teamRatings(bootstrap, fixtures, P = DEFAULT_PARAMS) {
   const teams = bootstrap.teams;
   const els = bootstrap.elements;
   const stats = {};
@@ -88,7 +105,7 @@ export function teamRatings(bootstrap, fixtures) {
   }
   const meanSA = teams.reduce((a, t) => a + (num(t.strength_attack_home) + num(t.strength_attack_away)) / 2, 0) / teams.length || 1;
   const meanSD = teams.reduce((a, t) => a + (num(t.strength_defence_home) + num(t.strength_defence_away)) / 2, 0) / teams.length || 1;
-  const K = 6;
+  const K = P.teamK;
   const out = {};
   for (const t of teams) {
     const s = stats[t.id];
@@ -114,8 +131,8 @@ export function teamRatings(bootstrap, fixtures) {
 }
 
 // recent: Map elementId -> {minutes, xg, xa, bonus, saves, dc, games}
-export function buildProjections({ bootstrap, fixtures, recent, teamGames, gws, now = new Date() }) {
-  const ratings = teamRatings(bootstrap, fixtures);
+export function buildProjections({ bootstrap, fixtures, recent, teamGames, gws, now = new Date(), params, lastSeason }) {
+  const ratings = teamRatings(bootstrap, fixtures, { ...DEFAULT_PARAMS, ...(params || {}) });
   const L = Object.values(ratings)[0].L;
   const events = Object.fromEntries(bootstrap.events.map(e => [e.id, e]));
   const byGw = {};
@@ -132,33 +149,56 @@ export function buildProjections({ bootstrap, fixtures, recent, teamGames, gws, 
     }
   }
 
+  const P = { ...DEFAULT_PARAMS, ...(params || {}) };
+  // Market prior: last season's points-per-90 vs end-of-season price, fitted per position
+  const priceFit = {};
+  if (P.priceW > 0 && lastSeason) {
+    for (const pos of [1, 2, 3, 4]) {
+      const xs = [], ys = [];
+      const posOf = new Map(bootstrap.elements.map(e => [e.id, e.element_type]));
+      for (const [id, l] of lastSeason) if (posOf.get(id) === pos && l.minutes >= 900 && l.endCost > 0) { xs.push(l.endCost); ys.push(l.pts / (l.minutes / 90)); }
+      if (xs.length < 8) continue;
+      const mx = xs.reduce((a, b) => a + b, 0) / xs.length, my = ys.reduce((a, b) => a + b, 0) / ys.length;
+      let sxy = 0, sxx = 0; xs.forEach((x, i) => { sxy += (x - mx) * (ys[i] - my); sxx += (x - mx) ** 2; });
+      const b = sxx ? sxy / sxx : 0; priceFit[pos] = { a: my - b * mx, b };
+    }
+  }
   const players = [];
   for (const el of bootstrap.elements) {
     const pos = el.element_type;
     if (!POS[pos]) continue; // skip managers or unknown types
     const team = ratings[el.team];
     const r = recent.get(el.id) || { minutes: 0, xg: 0, xa: 0, bonus: 0, saves: 0, dc: 0, goals: 0, assists: 0 };
-    const W = 1.5; // extra weight on last-4-GW form
+    const ls = P.useLastSeason ? lastSeason?.get(el.id) : null;
+    const lsOk = ls && ls.minutes >= 270;
+    const W = P.W; // extra weight on last-4-GW form
     const pr = PRIOR[pos];
-    const mins = num(el.minutes) + W * r.minutes + PRIOR_MINUTES;
-    const rate = (season, rec, prior) => (num(season) + W * rec + prior * PRIOR_MINUTES / 90) / (mins / 90);
-    const xg90 = rate(el.expected_goals, r.xg, pr.xg);
-    const xa90 = rate(el.expected_assists, r.xa, pr.xa);
-    // Finishing/creativity skill: blend in actual output (30%) so persistent over-performers aren't flattened
-    const g90 = 0.7 * xg90 + 0.3 * rate(el.goals_scored, r.goals, pr.xg);
-    const a90 = 0.7 * xa90 + 0.3 * rate(el.assists, r.assists, pr.xa);
-    const bonus90 = rate(el.bonus, r.bonus, pr.bonus);
-    const saves90 = rate(el.saves, r.saves, pr.saves);
-    const dc90 = rate(el.defensive_contribution, r.dc, pr.dc);
-    const yc90 = rate(el.yellow_cards, 0, pr.yc);
+    // Prior per-90 rate: last season (itself shrunk to the position prior) or the position prior alone
+    const priorW = lsOk ? Math.min(ls.minutes, P.lsMin) : P.priorMin;
+    const lsRate = (stat, prior) => (lsOk ? (num(ls[stat]) + prior * P.priorMin / 90) / ((ls.minutes + P.priorMin) / 90) : prior);
+    const mins = num(el.minutes) + W * r.minutes + priorW;
+    const rate = (season, rec, prior, stat) => (num(season) + W * rec + lsRate(stat, prior) * priorW / 90) / (mins / 90);
+    const xg90 = rate(el.expected_goals, r.xg, pr.xg, 'xg');
+    const xa90 = rate(el.expected_assists, r.xa, pr.xa, 'xa');
+    // Finishing/creativity skill: blend in actual output so persistent over-performers aren't flattened
+    const g90 = (1 - P.actualW) * xg90 + P.actualW * rate(el.goals_scored, r.goals, pr.xg, 'goals');
+    const a90 = (1 - P.actualW) * xa90 + P.actualW * rate(el.assists, r.assists, pr.xa, 'assists');
+    const bonus90 = rate(el.bonus, r.bonus, pr.bonus, 'bonus');
+    const saves90 = rate(el.saves, r.saves, pr.saves, 'saves');
+    const dc90 = rate(el.defensive_contribution, r.dc, pr.dc, 'dc');
+    const yc90 = rate(el.yellow_cards, 0, pr.yc, 'yc');
     const rc90 = num(el.red_cards) / Math.max(num(el.minutes) / 90, 10);
-    // Realised FPL points per 90 (captures bonus/finishing the components miss), shrunk to 3.5
-    const pp90 = (num(el.total_points) + 3.5 * PRIOR_MINUTES / 90) / ((num(el.minutes) + PRIOR_MINUTES) / 90);
+    // Realised FPL points per 90 (captures bonus/finishing the components miss)
+    const ppPrior = lsOk ? (num(ls.pts) + 3.5 * P.priorMin / 90) / ((ls.minutes + P.priorMin) / 90) : 3.5;
+    const pp90 = (num(el.total_points) + ppPrior * priorW / 90) / ((num(el.minutes) + priorW) / 90);
 
-    const seasonShare = team.games ? num(el.minutes) / (90 * team.games) : 0;
+    // Minutes share: this season (+ last-4 form), with last season as a prior early on
+    const G0 = lsOk ? P.shareG0 : 1;
+    const priorShare = lsOk ? clamp(ls.minutes / (38 * 90) * P.lsShareScale, 0.05, 1) : P.newShare;
+    const seasonShare = (num(el.minutes) + priorShare * 90 * G0) / (90 * (team.games + G0));
     const rGames = teamGames?.[el.team] || 0;
     const recentShare = rGames ? r.minutes / (90 * rGames) : seasonShare;
-    const share = clamp(team.games ? (rGames ? 0.6 * recentShare + 0.4 * seasonShare : seasonShare) : 0.5, 0, 1);
+    const share = clamp(rGames ? P.shareRecent * recentShare + (1 - P.shareRecent) * seasonShare : seasonShare, 0, 1);
     const p60 = clamp(1.15 * share - 0.1, 0, 0.95);
     const pApp = clamp(share * 1.5 + 0.05, p60, 0.98);
     const minsIfPlay = pApp > 0 ? clamp((90 * share) / pApp, 10, 90) : 0;
@@ -173,8 +213,8 @@ export function buildProjections({ bootstrap, fixtures, recent, teamGames, gws, 
         const opp = ratings[f.opp];
         const rot = fx.length > 1 ? 0.93 : 1; // rotation risk in doubles
         const a = avail * rot;
-        const lamFor = (team.att * opp.def) / L * (f.home ? HOME_ADV : 1 / HOME_ADV);
-        const lamAg = (opp.att * team.def) / L * (f.home ? 1 / HOME_ADV : HOME_ADV);
+        const lamFor = (team.att * opp.def) / L * (f.home ? P.homeAdv : 1 / P.homeAdv);
+        const lamAg = (opp.att * team.def) / L * (f.home ? 1 / P.homeAdv : P.homeAdv);
         const fAtt = lamFor / team.att;
         const expMins = a * pApp * minsIfPlay;
         let p = a * (p60 * 2 + (pApp - p60) * 1);
@@ -189,10 +229,13 @@ export function buildProjections({ bootstrap, fixtures, recent, teamGames, gws, 
         p -= (yc90 + 3 * rc90) * expMins / 90;
         const fixAdj = clamp(0.5 + 0.5 * (pos <= 2 ? Math.exp(-lamAg) / Math.exp(-team.def) : fAtt), 0.6, 1.5);
         const realised = pp90 * (expMins / 90) * fixAdj;
-        total += 0.7 * p + 0.3 * realised;
+        let blended = (1 - P.realisedW) * p + P.realisedW * realised;
+        const pf = priceFit[pos];
+        if (pf) blended = (1 - P.priceW) * blended + P.priceW * Math.max(0, pf.a + pf.b * num(el.now_cost) / 10) * (expMins / 90) * fixAdj;
+        total += blended;
       }
       // light blend with FPL's own next-GW expectation
-      if (k === 0 && el.ep_next != null && fx.length) total = 0.85 * total + 0.15 * num(el.ep_next);
+      if (k === 0 && el.ep_next != null && fx.length) total = (1 - P.epW) * total + P.epW * num(el.ep_next);
       pts[gw] = Math.round(total * 100) / 100;
     });
 

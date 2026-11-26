@@ -2,6 +2,7 @@
 import fs from 'node:fs/promises';
 import zlib from 'node:zlib';
 import { api } from './fpl.mjs';
+import { buildLastSeason, prevSeasonName, lastSeasonToJSON } from './lastseason.mjs';
 
 const cfg = JSON.parse(await fs.readFile('config.json', 'utf8'));
 const [bootstrap, fixtures] = await Promise.all([api.bootstrap(), api.fixtures()]);
@@ -22,4 +23,5 @@ for (const id of cfg.teamIds || []) {
 const out = { savedAt: new Date().toISOString(), bootstrap, fixtures, summaries, managers };
 await fs.mkdir('cache', { recursive: true });
 await fs.writeFile('cache/season.json.gz', zlib.gzipSync(JSON.stringify(out)));
+await fs.writeFile('cache/last-season.json', JSON.stringify(lastSeasonToJSON(buildLastSeason(summaries, prevSeasonName(bootstrap)))));
 console.log(`Saved ${ids.length} players`);

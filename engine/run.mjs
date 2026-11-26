@@ -6,6 +6,7 @@ import { api as realApi } from './fpl.mjs';
 import { buildProjections, aggregateRecent } from './model.mjs';
 import { optimise, candidatePool, bestLineup } from './optimize.mjs';
 import { analyseTeam, decayWeights, specialWeeks } from './planner.mjs';
+import { lastSeasonFromJSON } from './lastseason.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -28,7 +29,10 @@ export async function run({ api = realApi, outDir = path.join(ROOT, 'docs', 'dat
   const lastGws = finished.slice(-4);
   const lives = await Promise.all(lastGws.map(g => api.live(g).catch(() => null)));
   const { recent, teamGames } = aggregateRecent(lives, fixtures, lastGws);
-  const { players, ratings, teamFix } = buildProjections({ bootstrap, fixtures, recent, teamGames, gws, now });
+  let lastSeason = null;
+  try { lastSeason = lastSeasonFromJSON(JSON.parse(await fs.readFile(path.join(ROOT, 'cache', 'last-season.json'), 'utf8'))); }
+  catch { console.log('No cache/last-season.json; running without last-season priors'); }
+  const { players, ratings, teamFix } = buildProjections({ bootstrap, fixtures, recent, teamGames, gws, now, params: config.modelParams, lastSeason });
   const byId = new Map(players.map(p => [p.id, p]));
 
   // fixture counts per GW for doubles/blanks (whole season remaining)

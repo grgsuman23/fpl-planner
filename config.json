@@ -7,5 +7,6 @@
   "horizon": 8,
   "wildcardBudget": 100,
   "freeTransfers": {},
-  "backtestStartGw": 4
+  "backtestStartGw": 1,
+  "backtestRuns": 10
 }
