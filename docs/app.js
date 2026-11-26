@@ -335,13 +335,19 @@
       ${state.teamId && !has ? `<div class="note">Team ${esc(state.teamId)} isn't analysed yet. Add it to <b>config.json</b> in your repository (the <code>teamIds</code> list), then run the update. It's ready within about two minutes.</div>
         <div style="display:flex;gap:8px;flex-wrap:wrap">${repoLink('edit/main/config.json', 'Edit config.json')} ${repoLink('actions/workflows/update.yml', 'Run update', 'btn alt')}</div>` : ''}
       ${has ? `<div class="note blue">Team ${esc(state.teamId)} is analysed in every update.</div>` : ''}
+      ${(d.teamsAnalysed || []).filter(x => x.ok).length > 1 || ((d.teamsAnalysed || []).some(x => x.ok) && !has) ? `<h3>Switch team</h3>
+      <div class="seg" style="flex-wrap:wrap">${(d.teamsAnalysed || []).filter(x => x.ok).map(x => `<button data-switch="${x.id}" class="${String(x.id) === String(state.teamId) ? 'on' : ''}">${esc(x.name)}</button>`).join('')}</div>` : ''}
       <h3>Data updates</h3>
       <p class="sub">The model reruns automatically several times a day. Run it yourself after the team news drops or after you make transfers.</p>
       ${repoLink('actions/workflows/update.yml', 'Run update now', 'btn alt')}
       <h3>How the picks are made</h3>
       <p class="sub">Each player gets expected points per fixture from expected goals and assists, minutes, clean-sheet odds, saves, defensive contributions, bonus and cards, adjusted for opponent strength and injury news. A solver then picks the highest-scoring legal squad: £ budget, 2-5-5-3 and max 3 per club.</p>`);
-    $('#saveT').onclick = async () => {
-      const v = $('#tid').value.trim().replace(/\D/g, '');
+    document.querySelectorAll('[data-switch]').forEach(b => b.onclick = () => useTeam(b.dataset.switch));
+    $('#saveT').onclick = () => useTeam($('#tid').value);
+  }
+  async function useTeam(raw) {
+    {
+      const v = String(raw || '').trim().replace(/\D/g, '');
       state.teamId = v || null;
       try { v ? localStorage.setItem('fplTeamId', v) : localStorage.removeItem('fplTeamId'); } catch (e) { /* ignore */ }
       state.squadMode = 'after'; state.autoChip = false;
