@@ -1,0 +1,40 @@
+name: Backtest model
+
+on:
+  schedule:
+    # Tuesdays 06:13 UTC (11:58 NPT), after the gameweek has finished
+    - cron: "13 6 * * 2"
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ["engine/**", "config.json"]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: fpl-update
+  cancel-in-progress: false
+
+jobs:
+  backtest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Walk-forward backtest
+        run: node engine/backtest.mjs
+      - name: Commit results
+        run: |
+          git config user.name "fpl-planner-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add docs/data/backtest.json
+          if git diff --cached --quiet; then echo "No changes"; exit 0; fi
+          git commit -m "Backtest update $(date -u +'%Y-%m-%d %H:%M UTC')"
+          git pull --rebase origin main
+          git push

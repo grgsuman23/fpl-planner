@@ -307,7 +307,8 @@
   // ---------- Sheets ----------
   function openSheet(html) {
     const s = $('#sheet'); s.innerHTML = `<div class="grab"></div>${html}`; s.hidden = false; $('#backdrop').hidden = false;
-    const f = s.querySelector('input,button,a'); if (f) f.focus();
+    s.scrollTop = 0; s.tabIndex = -1;
+    const f = s.querySelector('input'); (f || s).focus({ preventScroll: true });
   }
   function closeSheet() { $('#sheet').hidden = true; $('#backdrop').hidden = true; }
 
@@ -337,11 +338,15 @@
       ${has ? `<div class="note blue">Team ${esc(state.teamId)} is analysed in every update.</div>` : ''}
       ${(d.teamsAnalysed || []).filter(x => x.ok).length > 1 || ((d.teamsAnalysed || []).some(x => x.ok) && !has) ? `<h3>Switch team</h3>
       <div class="seg" style="flex-wrap:wrap">${(d.teamsAnalysed || []).filter(x => x.ok).map(x => `<button data-switch="${x.id}" class="${String(x.id) === String(state.teamId) ? 'on' : ''}">${esc(x.name)}</button>`).join('')}</div>` : ''}
+      <h3>Model track record</h3>
+      <p class="sub">How the model would have done this season, replaying each past gameweek with only the data known at the time.</p>
+      <button class="btn alt" id="btBtn">See the backtest</button>
       <h3>Data updates</h3>
       <p class="sub">The model reruns automatically several times a day. Run it yourself after the team news drops or after you make transfers.</p>
       ${repoLink('actions/workflows/update.yml', 'Run update now', 'btn alt')}
       <h3>How the picks are made</h3>
       <p class="sub">Each player gets expected points per fixture from expected goals and assists, minutes, clean-sheet odds, saves, defensive contributions, bonus and cards, adjusted for opponent strength and injury news. A solver then picks the highest-scoring legal squad: £ budget, 2-5-5-3 and max 3 per club.</p>`);
+    $('#btBtn').onclick = openBacktest;
     document.querySelectorAll('[data-switch]').forEach(b => b.onclick = () => useTeam(b.dataset.switch));
     $('#saveT').onclick = () => useTeam($('#tid').value);
   }
@@ -353,6 +358,43 @@
       state.squadMode = 'after'; state.autoChip = false;
       await loadTeam(); render(); openSettings();
     };
+  }
+
+
+  async function openBacktest() {
+    let b;
+    try { b = await loadJSON('data/backtest.json'); } catch (e) {
+      openSheet(`<h2>No backtest yet</h2><p class="sub">Run the “Backtest model” workflow on GitHub. It takes about two minutes.</p>${repoLink('actions/workflows/backtest.yml', 'Open workflow')}`); return;
+    }
+    const s = b.summary, [g0, g1] = s.window;
+    const mgr = b.managers || [];
+    const beat = s.sim.total - s.average.total;
+    const row = (label, v, best) => `<tr><td>${label}</td><td class="r">${best ? `<span class="best">${v}</span>` : v}</td></tr>`;
+    const bestMae = Math.min(s.mae.model, s.mae.form, s.mae.ppg), bestCorr = Math.max(s.corr.model, s.corr.form, s.corr.ppg);
+    openSheet(`<h2>Backtest · GW${g0}–${g1}</h2>
+      <p class="sub">A simulated manager started with £100m in GW${g0} and followed this app's transfers, lineups and captains every week, with no chips.</p>
+      <div class="stat-grid" style="grid-template-columns:repeat(${2 + mgr.length},1fr)">
+        <div><span class="num">${s.sim.total}</span><small>Model manager</small></div>
+        <div><span class="num">${s.average.total}</span><small>FPL average</small></div>
+        ${mgr.map(m => `<div><span class="num">${m.total}</span><small>${esc(m.name)}</small></div>`).join('')}
+      </div>
+      <p>${beat >= 0 ? `The model beat the average manager by <b>${beat}</b> pts` : `The model trailed the average manager by <b>${-beat}</b> pts`} over ${s.weeks} gameweeks.</p>
+      <h3>Prediction accuracy</h3>
+      <p class="sub">Compared with two simple methods: recent form (points per game over the last 4 GWs) and season points per game.</p>
+      <table><thead><tr><th></th><th class="r">Model</th><th class="r">Form</th><th class="r">Season PPG</th></tr></thead><tbody>
+        <tr><td>Avg. error per player (lower is better)</td>${['model', 'form', 'ppg'].map(k => `<td class="r">${s.mae[k] === bestMae ? `<span class="best">${s.mae[k]}</span>` : s.mae[k]}</td>`).join('')}</tr>
+        <tr><td>Correlation with actual (higher is better)</td>${['model', 'form', 'ppg'].map(k => `<td class="r">${s.corr[k] === bestCorr ? `<span class="best">${s.corr[k]}</span>` : s.corr[k]}</td>`).join('')}</tr>
+        <tr><td>Avg. points of its top 20 picks</td>${['model', 'form', 'ppg'].map(k => `<td class="r">${s.top20[k]}</td>`).join('')}</tr>
+        <tr><td>Captain points, total</td><td class="r">${s.captain.model}</td><td class="r">${s.captain.form}</td><td class="r">–</td></tr>
+      </tbody></table>
+      <h3>Week by week</h3>
+      <div class="tbl-wrap"><table><thead><tr><th>GW</th><th class="r">Model</th><th class="r">Avg</th>${mgr.map(m => `<th class="r">${esc(m.name.slice(0, 10))}</th>`).join('')}<th>Captain</th><th>Transfers</th></tr></thead><tbody>
+      ${b.weeks.map(w => `<tr><td>GW${w.gw}</td><td class="r"><b>${w.sim.points}</b>${w.sim.hits ? ` <span class="muted">(−${w.sim.hits})</span>` : ''}</td><td class="r">${w.average ?? '–'}</td>${mgr.map(m => `<td class="r">${m.byGw[w.gw] ?? '–'}</td>`).join('')}<td>${esc(w.sim.captain)} ${w.sim.captainPts}</td><td class="muted">${w.sim.transfers.map(t => `${esc(t.out)}→${esc(t.in)}`).join(', ') || '—'}</td></tr>`).join('')}
+      </tbody></table></div>
+      <h3>Limits of this test</h3>
+      <ul class="sub" style="padding-left:18px">${b.caveats.map(c => `<li>${esc(c)}</li>`).join('')}</ul>
+      <button class="btn alt" id="closeS" style="width:100%;margin-top:6px">Close</button>`);
+    $('#closeS').onclick = closeSheet;
   }
 
   function needTeam(msg) { return `<section class="block"><h2>Add your team</h2><p class="sub">${msg}</p><button class="btn" data-need>Add my team ID</button></section>`; }

@@ -1,6 +1,10 @@
 {
-  "teamIds": [3502247],
+  "teamIds": [
+    3502247,
+    4219421
+  ],
   "horizon": 8,
   "wildcardBudget": 100,
-  "freeTransfers": {}
+  "freeTransfers": {},
+  "backtestStartGw": 4
 }
