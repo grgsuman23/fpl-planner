@@ -1,0 +1,17 @@
+{
+  "name": "fpl-app",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "update": "node engine/run.mjs",
+    "test": "node test/run-mock.mjs"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "glpk.js": "^4.0.2"
+  },
+  "type": "module"
+}
