@@ -3,7 +3,7 @@
 A phone app (installable PWA) that suggests your Fantasy Premier League team every gameweek: transfers, starting XI, captain, and when to play each chip.
 
 - **App:** https://grgsuman23.github.io/fpl-planner/ (open on your phone → browser menu → *Add to Home Screen*)
-- **Data refresh:** a GitHub Action runs every 4 hours, plus on demand (Actions → *Update FPL data* → *Run workflow*).
+- **Data refresh:** full update every 4 hours; a team-news watcher checks FPL injury/suspension flags every 30 minutes and reruns the model as soon as anything changes. Run on demand: Actions → *Update FPL data* → *Run workflow*.
 
 ## Add your team
 

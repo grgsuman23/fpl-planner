@@ -1,0 +1,45 @@
+name: Team news watch
+
+on:
+  schedule:
+    # Every 30 minutes. Only reruns the model when injury/suspension flags or GW status change.
+    - cron: "11,41 * * * *"
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Run the full update even if nothing changed"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: fpl-update
+  cancel-in-progress: false
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Check team news
+        env:
+          FPL_TEAM_IDS: ${{ vars.FPL_TEAM_IDS }}
+          FORCE: ${{ inputs.force }}
+        run: node engine/newscheck.mjs
+      - name: Commit results
+        run: |
+          git config user.name "fpl-planner-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add docs/data
+          if git diff --cached --quiet; then echo "No changes"; exit 0; fi
+          git commit -m "Team news update $(date -u +'%Y-%m-%d %H:%M UTC')"
+          git pull --rebase origin main
+          git push

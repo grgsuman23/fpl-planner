@@ -54,6 +54,7 @@
       return;
     }
     byId = new Map(state.data.players.map(p => [p.id, p]));
+    try { state.news = await loadJSON('data/news.json'); } catch (e) { state.news = null; }
     teamsById = new Map(state.data.teams.map(t => [t.id, t]));
     state.gwSel = state.data.nextGw;
     await loadTeam();
@@ -124,6 +125,7 @@
     html += pitch(squad, gw, t ? newIns() : new Set());
     html += `</section>`;
     html += startBench(squad, gw);
+    html += teamNews();
     if (!t) html += generalExtras();
     view.innerHTML = html;
     view.querySelectorAll('[data-gw]').forEach(b => b.onclick = () => { state.gwSel = Number(b.dataset.gw); renderPlan(); });
@@ -225,8 +227,24 @@
       <p class="sub">Formation ${form}. Expected points shown on the right; tap a player for details.</p>
       ${notes.map(n => `<div class="note ${n.startsWith('Close') ? 'blue' : ''}">${n}</div>`).join('')}
       <h3>Start</h3><ul class="list">${[1, 2, 3, 4].flatMap(pos => st.filter(p => p.pos === pos).sort((a, c) => x(c.id) - x(a.id))).map(p => line(p)).join('')}</ul>
-      <h3>Bench, in order</h3><ul class="list">${bn.map((p, i) => line(p, p.pos === 1 ? 'GK' : i)).join('')}</ul>
+      <h3>Bench, in order</h3><ul class="list">${bn.map((p, i) => line(p, p.pos === 1 ? null : i)).join('')}</ul>
       <p class="sub" style="margin-top:8px">Bench order matters: if a starter doesn't play, FPL brings on the first bench player who keeps the formation legal.</p></section>`;
+  }
+
+
+  // Injury / suspension flag changes picked up by the 30-minute watcher
+  function teamNews() {
+    const n = state.news; if (!n || !n.changes?.length) return '';
+    const cutoff = Date.now() - 48 * 36e5;
+    const mine = new Set(state.team ? [...state.team.squad.map(s => s.id), ...currentSquadIds()] : []);
+    const list = n.changes.filter(c => new Date(c.time) > cutoff)
+      .sort((a, b) => (mine.has(b.id) - mine.has(a.id)) || (new Date(b.time) - new Date(a.time))).slice(0, 15);
+    if (!list.length) return '';
+    const label = { a: 'Available', d: 'Doubtful', i: 'Injured', s: 'Suspended', u: 'Unavailable', n: 'Not eligible' };
+    return `<section class="block"><h2>Team news · last 48 hours</h2>
+      <p class="sub">Picked up within about 30 minutes of FPL posting it; advice above already reflects it.</p>
+      <ul class="list">${list.map(c => `<li data-pid="${c.id}" class="click"><div><div class="t">${mine.has(c.id) ? '<span style="color:var(--red)">●</span> ' : ''}${esc(c.name)} <span class="muted">${esc(c.team)}</span>${mine.has(c.id) ? ' <span class="pill red">Your squad</span>' : ''}</div>
+        <div class="s">${label[c.from] || c.from} → <b>${label[c.to] || c.to}${c.to === 'd' && c.chance != null ? ` (${c.chance}%)` : ''}</b>${c.news ? ` · ${esc(c.news)}` : ''}</div></div><div class="s muted">${timeAgo(new Date(c.time))}</div></li>`).join('')}</ul></section>`;
   }
 
   function generalExtras() {

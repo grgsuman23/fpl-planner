@@ -1,0 +1,13 @@
+import fs from 'node:fs/promises';
+import { makeMock } from './mock.mjs';
+import { check } from '../engine/newscheck.mjs';
+const { api } = makeMock();
+const DATA = '/tmp/newsdata'; await fs.rm(DATA, { recursive: true, force: true }); await fs.mkdir(DATA, { recursive: true });
+let runs = 0; const runFn = async () => { runs++; };
+const log = () => {};
+let r = await check({ api, DATA, runFn, log }); console.log('first run (no baseline):', r.ran, 'runs', runs);
+r = await check({ api, DATA, runFn, log }); console.log('no change:', r.ran, 'runs', runs);
+const b = await api.bootstrap(); b.elements[5].status = 'i'; b.elements[5].chance_of_playing_next_round = 0; b.elements[5].news = 'Knee injury - Expected back 20 Dec';
+api.bootstrap = async () => b;
+r = await check({ api, DATA, runFn, log }); console.log('injury flagged:', r.ran, 'runs', runs, JSON.stringify(r.changes));
+const news = JSON.parse(await fs.readFile(`${DATA}/news.json`, 'utf8')); console.log('news log entries', news.changes.length);
