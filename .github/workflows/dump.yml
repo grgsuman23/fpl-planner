@@ -1,0 +1,28 @@
+name: Snapshot season data
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ["engine/dump.mjs"]
+
+permissions:
+  contents: write
+
+jobs:
+  dump:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node engine/dump.mjs
+      - run: |
+          git config user.name "fpl-planner-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add cache/season.json.gz
+          git commit -m "Season snapshot $(date -u +'%Y-%m-%d %H:%M UTC')" || exit 0
+          git pull --rebase origin main
+          git push
