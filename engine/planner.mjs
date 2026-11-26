@@ -85,7 +85,8 @@ async function transferPlans({ players, byId, team, gws, weights, ft }) {
   }
   const base = plans.find(p => p.k === 0)?.net ?? 0;
   for (const p of plans) p.gain = +(p.net - base).toFixed(2);
-  const best = plans.reduce((a, b) => (b.score > a.score + 0.25 ? b : a), plans[0]);
+  // Extra transfers must clearly pay: +0.25 margin for free moves, +2 per extra hit taken (projection noise)
+  const best = plans.reduce((a, b) => (b.score > a.score + (b.hits > a.hits ? 2 * (b.hits - a.hits) / 4 : 0.25) ? b : a), plans[0]);
   // pair outs with ins by position for display
   for (const p of plans) {
     const outs = p.out.map(id => byId.get(id)), ins = p.in.map(id => byId.get(id));
