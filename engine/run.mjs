@@ -80,7 +80,7 @@ export async function run({ api = realApi, outDir = path.join(ROOT, 'docs', 'dat
   };
   // make sure every player referenced by the optimiser output is present
   const listed = new Set(general.players.map(p => p.id));
-  const need = new Set();
+  const need = new Set([...(wc?.squad || []), ...(fh?.squad || [])]);
 
   await fs.mkdir(outDir, { recursive: true });
   const teamsOut = [];

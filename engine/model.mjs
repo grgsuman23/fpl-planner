@@ -137,13 +137,16 @@ export function buildProjections({ bootstrap, fixtures, recent, teamGames, gws, 
     const pos = el.element_type;
     if (!POS[pos]) continue; // skip managers or unknown types
     const team = ratings[el.team];
-    const r = recent.get(el.id) || { minutes: 0, xg: 0, xa: 0, bonus: 0, saves: 0, dc: 0 };
+    const r = recent.get(el.id) || { minutes: 0, xg: 0, xa: 0, bonus: 0, saves: 0, dc: 0, goals: 0, assists: 0 };
     const W = 1.5; // extra weight on last-4-GW form
     const pr = PRIOR[pos];
     const mins = num(el.minutes) + W * r.minutes + PRIOR_MINUTES;
     const rate = (season, rec, prior) => (num(season) + W * rec + prior * PRIOR_MINUTES / 90) / (mins / 90);
     const xg90 = rate(el.expected_goals, r.xg, pr.xg);
     const xa90 = rate(el.expected_assists, r.xa, pr.xa);
+    // Finishing/creativity skill: blend in actual output (30%) so persistent over-performers aren't flattened
+    const g90 = 0.7 * xg90 + 0.3 * rate(el.goals_scored, r.goals, pr.xg);
+    const a90 = 0.7 * xa90 + 0.3 * rate(el.assists, r.assists, pr.xa);
     const bonus90 = rate(el.bonus, r.bonus, pr.bonus);
     const saves90 = rate(el.saves, r.saves, pr.saves);
     const dc90 = rate(el.defensive_contribution, r.dc, pr.dc);
@@ -173,8 +176,8 @@ export function buildProjections({ bootstrap, fixtures, recent, teamGames, gws, 
         const fAtt = lamFor / team.att;
         const expMins = a * pApp * minsIfPlay;
         let p = a * (p60 * 2 + (pApp - p60) * 1);
-        p += xg90 * fAtt * expMins / 90 * GOAL_PTS[pos];
-        p += xa90 * fAtt * expMins / 90 * 3;
+        p += g90 * fAtt * expMins / 90 * GOAL_PTS[pos];
+        p += a90 * fAtt * expMins / 90 * 3;
         p += CS_PTS[pos] * a * p60 * Math.exp(-lamAg);
         if (pos <= 2) p -= a * p60 * expFloorDiv(lamAg, 2);
         if (pos === 1) p += a * p60 * expFloorDiv(saves90 * (lamAg / team.def), 3);
@@ -215,7 +218,8 @@ export function aggregateRecent(lives, fixtures, lastGws) {
     if (!live) continue;
     for (const e of live.elements) {
       const s = e.stats || {};
-      const cur = m.get(e.id) || { minutes: 0, xg: 0, xa: 0, bonus: 0, saves: 0, dc: 0 };
+      const cur = m.get(e.id) || { minutes: 0, xg: 0, xa: 0, bonus: 0, saves: 0, dc: 0, goals: 0, assists: 0 };
+      cur.goals += num(s.goals_scored); cur.assists += num(s.assists);
       cur.minutes += num(s.minutes); cur.xg += num(s.expected_goals); cur.xa += num(s.expected_assists);
       cur.bonus += num(s.bonus); cur.saves += num(s.saves); cur.dc += num(s.defensive_contribution);
       m.set(e.id, cur);
