@@ -152,6 +152,8 @@ export function buildProjections({ bootstrap, fixtures, recent, teamGames, gws, 
     const dc90 = rate(el.defensive_contribution, r.dc, pr.dc);
     const yc90 = rate(el.yellow_cards, 0, pr.yc);
     const rc90 = num(el.red_cards) / Math.max(num(el.minutes) / 90, 10);
+    // Realised FPL points per 90 (captures bonus/finishing the components miss), shrunk to 3.5
+    const pp90 = (num(el.total_points) + 3.5 * PRIOR_MINUTES / 90) / ((num(el.minutes) + PRIOR_MINUTES) / 90);
 
     const seasonShare = team.games ? num(el.minutes) / (90 * team.games) : 0;
     const rGames = teamGames?.[el.team] || 0;
@@ -185,7 +187,9 @@ export function buildProjections({ bootstrap, fixtures, recent, teamGames, gws, 
         const bonusAdj = pos <= 2 ? Math.exp(-lamAg) / Math.exp(-team.def) : fAtt;
         p += bonus90 * expMins / 90 * clamp(0.5 + 0.5 * bonusAdj, 0.6, 1.6);
         p -= (yc90 + 3 * rc90) * expMins / 90;
-        total += p;
+        const fixAdj = clamp(0.5 + 0.5 * (pos <= 2 ? Math.exp(-lamAg) / Math.exp(-team.def) : fAtt), 0.6, 1.5);
+        const realised = pp90 * (expMins / 90) * fixAdj;
+        total += 0.7 * p + 0.3 * realised;
       }
       // light blend with FPL's own next-GW expectation
       if (k === 0 && el.ep_next != null && fx.length) total = 0.85 * total + 0.15 * num(el.ep_next);
