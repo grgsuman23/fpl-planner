@@ -11,9 +11,7 @@
   "backtestRuns": 10,
   "locks": {
     "3502247": {
-      "include": [
-        "Isak"
-      ],
+      "include": [],
       "exclude": []
     },
     "4219421": {
