@@ -31,7 +31,7 @@ export const DEFAULT_PARAMS = {
   shareG0: 3,        // games-equivalent weight of last season's minutes share
   lsShareScale: 1.1, // last season minutes understate a fit starter's share (injuries)
   newShare: 0.35,    // prior minutes share for players new to the league
-  homeAdv: 1.1,
+  homeAdv: 'auto',   // 'auto' = learned from this season's results, shrunk to the long-run PL level
   teamK: 6,          // games-equivalent weight of the club strength prior
   priceW: 0.3,       // weight of the price-implied points (market prior)
   startW: 0,         // weight of the start-based minutes model (0 = minutes-share model only)
@@ -131,7 +131,13 @@ export function teamRatings(bootstrap, fixtures, P = DEFAULT_PARAMS) {
     };
   }
   const L = Object.values(out).reduce((a, t) => a + t.att, 0) / teams.length;
-  for (const t of Object.values(out)) t.L = L;
+  // Home advantage: home/away goals ratio this season, shrunk toward the long-run PL ratio (~1.25)
+  let hg = 0, ag = 0, n = 0;
+  for (const f of fixtures) if (f.finished && f.team_h_score != null) { hg += f.team_h_score; ag += f.team_a_score; n++; }
+  const obs = ag > 0 ? hg / ag : 1.25, prior = 100;
+  const ratio = (obs * n + 1.25 * prior) / (n + prior);
+  const homeAdv = typeof P.homeAdv === 'number' ? P.homeAdv : Math.sqrt(ratio);
+  for (const t of Object.values(out)) { t.L = L; t.homeAdv = homeAdv; }
   return out;
 }
 
@@ -245,8 +251,9 @@ export function buildProjections({ bootstrap, fixtures, recent, teamGames, gws, 
         const opp = ratings[f.opp];
         const rot = fx.length > 1 ? 0.93 : 1; // rotation risk in doubles
         const a = avail * rot;
-        const lamFor = (team.att * opp.def) / L * (f.home ? P.homeAdv : 1 / P.homeAdv);
-        const lamAg = (opp.att * team.def) / L * (f.home ? 1 / P.homeAdv : P.homeAdv);
+        const HA = team.homeAdv;
+        const lamFor = (team.att * opp.def) / L * (f.home ? HA : 1 / HA);
+        const lamAg = (opp.att * team.def) / L * (f.home ? 1 / HA : HA);
         const fAtt = lamFor / team.att;
         const expMins = a * pApp * minsIfPlay;
         let p = a * (p60 * 2 + (pApp - p60) * 1);

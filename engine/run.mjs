@@ -60,8 +60,9 @@ export async function run({ api = realApi, outDir = path.join(ROOT, 'docs', 'dat
       gw,
       games: (teamFix[gw][t.id] || []).map(f => {
         const me = ratings[t.id], op = ratings[f.opp], L = me.L;
-        const gf = (me.att * op.def) / L * (f.home ? 1.1 : 1 / 1.1);
-        const ga = (op.att * me.def) / L * (f.home ? 1 / 1.1 : 1.1);
+        const HA = me.homeAdv;
+        const gf = (me.att * op.def) / L * (f.home ? HA : 1 / HA);
+        const ga = (op.att * me.def) / L * (f.home ? 1 / HA : HA);
         return { opp: f.opp, home: f.home, xgf: +gf.toFixed(2), xga: +ga.toFixed(2), cs: +Math.exp(-ga).toFixed(2) };
       }),
     })),
@@ -72,6 +73,7 @@ export async function run({ api = realApi, outDir = path.join(ROOT, 'docs', 'dat
     deadline: nextEv.deadline_time,
     events: events.filter(e => e.id >= nextGw).map(e => ({ id: e.id, deadline: e.deadline_time })),
     teams: Object.values(ratings).map(r => ({ id: r.id, name: r.name, short: r.short, att: +r.att.toFixed(2), def: +r.def.toFixed(2) })),
+    homeAdvantage: +Object.values(ratings)[0].homeAdv.toFixed(3),
     players: players
       .filter(p => p.status !== 'u' && (p.totalPts > 0 || p.share > 0.05 || gws.some(g => p.pts[g] > 2)))
       .map(p => ({ ...p, pts: Object.fromEntries(Object.entries(p.pts).map(([g, v]) => [g, +v.toFixed(2)])) })),
