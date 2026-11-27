@@ -26,7 +26,7 @@ export const DEFAULT_PARAMS = {
   lsMin: 1800,       // max strength (minutes) of last season's rates as prior
   actualW: 0.3,      // weight of actual goals/assists vs xG/xA
   realisedW: 0.3,    // weight of realised FPL points per 90
-  epW: 0.15,         // weight of FPL's own ep_next (live only)
+  epW: 0,            // weight of FPL's ep_next. Off: it is pure recent form, untestable historically, and form lost to the model in backtests
   shareRecent: 0.6,  // minutes share: weight of last 4 GWs
   shareG0: 3,        // games-equivalent weight of last season's minutes share
   lsShareScale: 1.1, // last season minutes understate a fit starter's share (injuries)

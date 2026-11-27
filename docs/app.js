@@ -166,9 +166,19 @@
       <p class="sub">${esc(t.manager)} · rank ${Number(t.overallRank || 0).toLocaleString()} · ${money(t.bank)} in the bank · ${t.freeTransfers} FT</p>
       <div class="verdicts">
         <div class="verdict"><div class="k">Transfers</div><div class="v">${chipNow?.chip === 'wildcard' || chipNow?.chip === 'freehit' ? `Use the ${chipNow.label} squad below instead of single transfers.` : moves}</div></div>
-        <div class="verdict"><div class="k">Captain</div><div class="v"><b>${esc(P(lu.captain)?.name)}</b> <span class="muted">${f1(pts(P(lu.captain), gw))} xP · vice ${esc(P(lu.vice)?.name)}</span></div></div>
+        <div class="verdict"><div class="k">Captain</div><div class="v">${captainBlock(lu, gw)}</div></div>
         <div class="verdict"><div class="k">Chip</div><div class="v">${chipTxt}</div></div>
       </div></section>`;
+  }
+
+
+  // Captain plus the next-best options from the starting XI, so close calls are visible
+  function captainBlock(lu, gw) {
+    const opts = lu.starters.map(P).filter(Boolean).sort((a, b) => pts(b, gw) - pts(a, gw)).slice(0, 3);
+    const top = pts(opts[0], gw);
+    const close = opts.length > 1 && top - pts(opts[1], gw) < 0.5;
+    return `<b>${esc(opts[0]?.name)}</b> <span class="muted">${f1(top)} xP · vice ${esc(opts[1]?.name)}</span>
+      <div class="s muted" style="font-size:13px;margin-top:2px">Options: ${opts.map(p => `${esc(p.name)} ${f1(pts(p, gw))} (${esc((p.fixtures[gw] || []).join(', '))})`).join(' · ')}${close ? '. Very close: any of these is a sound pick.' : ''}</div>`;
   }
 
   function pitch(ids, gw, fresh) {
