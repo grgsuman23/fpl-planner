@@ -163,6 +163,9 @@
     if (chipNow && (chipNow.chip === 'wildcard' || chipNow.chip === 'freehit') && !state.autoChip) { state.autoChip = true; if (t.chipTeam) state.squadMode = 'chip'; }
     return `<section class="block">
       <h2>${esc(t.name)}</h2>
+      ${t.transfers.error ? `<div class="note">${esc(t.transfers.error)}</div>` : ''}
+      ${t.locks && (t.locks.include.length || t.locks.exclude.length) ? `<p class="sub">Your rules: ${t.locks.include.length ? `always include ${t.locks.include.map(i => esc(P(i)?.name)).join(', ')}` : ''}${t.locks.include.length && t.locks.exclude.length ? '; ' : ''}${t.locks.exclude.length ? `never include ${t.locks.exclude.map(i => esc(P(i)?.name)).join(', ')}` : ''}.</p>` : ''}
+      ${t.locks?.unresolved?.length ? `<div class="note">Couldn't find: ${t.locks.unresolved.map(esc).join(', ')}. Check the spelling in config.json.</div>` : ''}
       <p class="sub">${esc(t.manager)} · rank ${Number(t.overallRank || 0).toLocaleString()} · ${money(t.bank)} in the bank · ${t.freeTransfers} FT</p>
       <div class="verdicts">
         <div class="verdict"><div class="k">Transfers</div><div class="v">${chipNow?.chip === 'wildcard' || chipNow?.chip === 'freehit' ? `Use the ${chipNow.label} squad below instead of single transfers.` : moves}</div></div>
@@ -407,6 +410,9 @@
       <h3>Model track record</h3>
       <p class="sub">How the model would have done this season, replaying each past gameweek with only the data known at the time.</p>
       <button class="btn alt" id="btBtn">See the backtest</button>
+      <h3>Must include / never include</h3>
+      <p class="sub">Set players the planner must keep or bring in, or must avoid, for each team. Open config.json, find your team ID under <code>locks</code>, and type names, e.g. <code>"include": ["Isak", "Wirtz"]</code>. Advice updates about 2 minutes after you save.</p>
+      ${repoLink('edit/main/config.json', 'Edit my rules', 'btn alt')}
       <h3>Data updates</h3>
       <p class="sub">The model reruns automatically several times a day. Run it yourself after the team news drops or after you make transfers.</p>
       ${repoLink('actions/workflows/update.yml', 'Run update now', 'btn alt')}

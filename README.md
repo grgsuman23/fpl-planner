@@ -11,6 +11,8 @@ A phone app (installable PWA) that suggests your Fantasy Premier League team eve
 2. Edit `config.json` and put it in `teamIds`, e.g. `"teamIds": [1234567]`. Commit; the update runs automatically.
 3. In the app, tap the profile icon and enter the same ID.
 
+Optional: `locks` sets per-team rules, e.g. `"locks": {"1234567": {"include": ["Isak", "Wirtz"], "exclude": ["Haaland"]}}`; the planner then builds transfers, Wildcard and Free Hit around them. Names are matched loosely (accents and case don't matter).
+
 Optional: `freeTransfers` lets you override the calculated free-transfer count, e.g. `{"1234567": 2}`.
 
 ## How it works

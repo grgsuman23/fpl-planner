@@ -8,6 +8,21 @@ import { optimise, candidatePool, bestLineup } from './optimize.mjs';
 import { analyseTeam, decayWeights, specialWeeks } from './planner.mjs';
 import { lastSeasonFromJSON } from './lastseason.mjs';
 
+// Turns "must include / never include" names (or IDs) from config.json into player IDs
+const norm = x => String(x).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '');
+export function resolveLocks(cfg, players) {
+  const out = { include: [], exclude: [], unresolved: [] };
+  for (const key of ['include', 'exclude']) {
+    for (const want of cfg?.[key] || []) {
+      const w = norm(want);
+      const hit = players.find(p => String(p.id) === String(want)) || players.find(p => norm(p.name) === w) || players.find(p => norm(p.full) === w)
+        || players.filter(p => norm(p.full).includes(w) || norm(p.name).includes(w)).sort((a, b) => b.own - a.own)[0];
+      if (hit) out[key].push(hit.id); else out.unresolved.push(want);
+    }
+  }
+  return out;
+}
+
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 export async function run({ api = realApi, outDir = path.join(ROOT, 'docs', 'data'), config, now = new Date() } = {}) {
@@ -92,7 +107,9 @@ export async function run({ api = realApi, outDir = path.join(ROOT, 'docs', 'dat
   const teamsOut = [];
   for (const id of teamIds) {
     try {
-      const res = await analyseTeam({ api, id, players, byId, gws, nextGw, fixtureCounts, ftOverride: config.freeTransfers?.[id] });
+      const locks = resolveLocks(config.locks?.[id], players);
+      if (locks.unresolved.length) console.log(`Team ${id}: could not match ${locks.unresolved.join(', ')}`);
+      const res = await analyseTeam({ api, id, players, byId, gws, nextGw, fixtureCounts, ftOverride: config.freeTransfers?.[id], locks });
       res.generatedAt = general.generatedAt; res.nextGw = nextGw;
       [...res.squad.map(s => s.id), ...res.transfers.plans.flatMap(p => p.squad), ...(res.chipTeam?.squad || [])].forEach(i => need.add(i));
       await fs.writeFile(path.join(outDir, `team-${id}.json`), JSON.stringify(res));

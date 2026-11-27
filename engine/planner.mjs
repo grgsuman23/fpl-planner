@@ -66,14 +66,17 @@ export async function loadTeam(api, id, byId) {
   };
 }
 
-async function transferPlans({ players, byId, team, gws, weights, ft }) {
+async function transferPlans({ players, byId, team, gws, weights, ft, locks = { include: [], exclude: [] } }) {
   const current = new Map(team.squad.map(s => [s.id, s.sell]));
   const budget = team.bank + team.squad.reduce((a, s) => a + s.sell, 0);
-  const pool = candidatePool(players, gws, weights, new Set(current.keys()));
-  const maxK = Math.min(5, ft + 2);
+  const pool = candidatePool(players, gws, weights, new Set([...current.keys(), ...locks.include])).filter(p => !locks.exclude.includes(p.id) || current.has(p.id));
+  // locked-in players you don't own and owned players you've excluded each need a transfer
+  const needed = locks.include.filter(i => !current.has(i)).length + locks.exclude.filter(i => current.has(i)).length;
+  const maxK = Math.min(15, Math.max(Math.min(5, ft + 2), needed + 1));
   const plans = [];
   for (let k = 0; k <= maxK; k++) {
-    const r = await optimise({ players: pool, gws, weights, budget, current, exactTransfers: k });
+    if (k < needed) continue;
+    const r = await optimise({ players: pool, gws, weights, budget, current, exactTransfers: k, forceIn: locks.include, forceOut: locks.exclude });
     if (!r) continue;
     const hits = 4 * Math.max(0, k - ft);
     const rollCost = ft < 5 ? 1.5 * Math.min(k, ft) : 0; // value of banking a free transfer
@@ -83,7 +86,8 @@ async function transferPlans({ players, byId, team, gws, weights, ft }) {
       in: r.transfersIn, out: r.transfersOut, squad: r.squad, bankAfter: +(budget - r.cost).toFixed(1),
     });
   }
-  const base = plans.find(p => p.k === 0)?.net ?? 0;
+  if (!plans.length) return { plans: [], recommended: null, budget: +budget.toFixed(1), error: 'No legal squad fits your must-include / never-include lists (check budget and the 3-per-club limit).' };
+  const base = plans.find(p => p.k === 0)?.net ?? plans[0].net;
   for (const p of plans) p.gain = +(p.net - base).toFixed(2);
   // Extra transfers must clearly pay: +0.25 margin for free moves, +2 per extra hit taken (projection noise)
   const best = plans.reduce((a, b) => (b.score > a.score + (b.hits > a.hits ? 2 * (b.hits - a.hits) / 4 : 0.25) ? b : a), plans[0]);
@@ -100,7 +104,7 @@ async function transferPlans({ players, byId, team, gws, weights, ft }) {
 }
 
 // Values each chip for each GW in the window, then schedules them.
-export async function chipPlan({ players, byId, squadIds, budget, gws, chipState, nextGw, fixtureCounts }) {
+export async function chipPlan({ players, byId, squadIds, budget, gws, chipState, nextGw, fixtureCounts, locks = { include: [], exclude: [] } }) {
   const squadP = squadIds.map(id => byId.get(id));
   const windowGws = gws.filter(g => half(g) === chipState.half);
   const values = {};
@@ -108,15 +112,15 @@ export async function chipPlan({ players, byId, squadIds, budget, gws, chipState
     const lu = bestLineup(squadP, gw);
     const v = { gw, tc: lu.capPts, bb: lu.benchPts, fh: null, wc: null, captain: lu.captain };
     if (chipState.available.includes('freehit') && gw > 1) {
-      const pool = candidatePool(players, [gw], [1]);
-      const r = await optimise({ players: pool, gws: [gw], weights: [1], budget, benchWeight: 0, gkBenchWeight: 0 });
+      const pool = candidatePool(players, [gw], [1], new Set(locks.include)).filter(p => !locks.exclude.includes(p.id));
+      const r = await optimise({ players: pool, gws: [gw], weights: [1], budget, benchWeight: 0, gkBenchWeight: 0, forceIn: locks.include });
       if (r) { v.fh = +(r.objective - lu.xiPts).toFixed(2); v.fhSquad = r.squad; }
     }
     if (chipState.available.includes('wildcard')) {
       const idx = gws.indexOf(gw);
       const wgws = gws.slice(idx, idx + 6), ww = decayWeights(wgws.length);
-      const pool = candidatePool(players, wgws, ww);
-      const r = await optimise({ players: pool, gws: wgws, weights: ww, budget });
+      const pool = candidatePool(players, wgws, ww, new Set(locks.include)).filter(p => !locks.exclude.includes(p.id));
+      const r = await optimise({ players: pool, gws: wgws, weights: ww, budget, forceIn: locks.include });
       if (r) {
         const gain = evalSquad(r.squad.map(id => byId.get(id)), wgws, ww) - evalSquad(squadP, wgws, ww);
         v.wc = +(gain * 0.6).toFixed(2); // ~40% of the gap you'd close anyway with normal free transfers
@@ -182,18 +186,18 @@ export function specialWeeks(fixtureCounts, nextGw) {
   return out;
 }
 
-export async function analyseTeam({ api, id, players, byId, gws, nextGw, fixtureCounts, ftOverride }) {
+export async function analyseTeam({ api, id, players, byId, gws, nextGw, fixtureCounts, ftOverride, locks = { include: [], exclude: [] } }) {
   const team = await loadTeam(api, id, byId);
   const ft = ftOverride ?? freeTransfers(team.history, team.chips, team.startedEvent, team.lastEvent);
   const H = Math.min(6, gws.length), tgws = gws.slice(0, H), weights = decayWeights(H);
-  const tp = await transferPlans({ players, byId, team, gws: tgws, weights, ft });
+  const tp = await transferPlans({ players, byId, team, gws: tgws, weights, ft, locks });
   const rec = tp.plans.find(p => p.k === tp.recommended);
   const squadIds = rec?.squad || team.squad.map(s => s.id);
   const lineup = bestLineup(squadIds.map(i => byId.get(i)), nextGw);
   const captainOptions = squadIds.map(i => byId.get(i)).sort((a, b) => (b.pts[nextGw] || 0) - (a.pts[nextGw] || 0)).slice(0, 5).map(p => p.id);
   const chipState = chipsAvailable(team.chips, nextGw);
   const budget = tp.budget;
-  const chips = await chipPlan({ players, byId, squadIds, budget, gws, chipState, nextGw, fixtureCounts });
+  const chips = await chipPlan({ players, byId, squadIds, budget, gws, chipState, nextGw, fixtureCounts, locks });
 
   // If a WC/FH is scheduled for this week, swap the headline team to the chip squad
   let chipTeam = null;
@@ -206,6 +210,7 @@ export async function analyseTeam({ api, id, players, byId, gws, nextGw, fixture
   for (const v of chips.values) { delete v.wcSquad; delete v.fhSquad; }
 
   return {
+    locks: { include: locks.include, exclude: locks.exclude, unresolved: locks.unresolved || [] },
     id, name: team.name, manager: team.manager, overallRank: team.overallRank, overallPoints: team.overallPoints,
     lastEvent: team.lastEvent, bank: team.bank, freeTransfers: ft,
     squad: team.squad, squadValue: +(team.squad.reduce((a, s) => a + s.sell, 0)).toFixed(1),

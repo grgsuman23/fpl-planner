@@ -8,5 +8,19 @@
   "wildcardBudget": 100,
   "freeTransfers": {},
   "backtestStartGw": 1,
-  "backtestRuns": 10
+  "backtestRuns": 10,
+  "locks": {
+    "3502247": {
+      "include": [],
+      "exclude": []
+    },
+    "4219421": {
+      "include": [],
+      "exclude": []
+    },
+    "4866068": {
+      "include": [],
+      "exclude": []
+    }
+  }
 }
